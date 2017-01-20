@@ -22,9 +22,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.wildfly.security.password.interfaces.ClearPassword.ALGORITHM_CLEAR;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.GeneralSecurityException;
 import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
+import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -280,14 +282,28 @@ public class FormAuthenticationWithClusteredSSOTest extends AbstractHttpServerMe
         SingleSignOnManager manager = new DefaultSingleSignOnManager(cache, new DefaultSingleSignOnSessionIdentifierFactory(), (id, entry) -> cache.put(id, entry));
         SingleSignOnServerMechanismFactory.SingleSignOnConfiguration signOnConfiguration = new SingleSignOnServerMechanismFactory.SingleSignOnConfiguration("JSESSIONSSOID", null, "/", false, false);
 
+        String alias = "server";
+        char[] password = "password".toCharArray();
         try {
-            KeyPair keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+            KeyStore store = loadKeyStore("/tls/server.keystore");
+            assertTrue(store.containsAlias(alias));
+            assertTrue(store.entryInstanceOf(alias, KeyStore.PrivateKeyEntry.class));
+            KeyStore.PrivateKeyEntry entry = (KeyStore.PrivateKeyEntry) store.getEntry(alias, new KeyStore.PasswordProtection(password));
+            KeyPair keyPair = new KeyPair(entry.getCertificate().getPublicKey(), entry.getPrivateKey());
 
             SingleSignOnSessionFactory singleSignOnSessionFactory = new DefaultSingleSignOnSessionFactory(manager, keyPair);
 
             return new SingleSignOnServerMechanismFactory(delegate, singleSignOnSessionFactory, signOnConfiguration);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+        } catch (GeneralSecurityException | IOException e) {
+            throw new IllegalStateException(e);
         }
+    }
+
+    private static KeyStore loadKeyStore(final String path) throws GeneralSecurityException, IOException {
+        KeyStore store = KeyStore.getInstance("jks");
+        try (InputStream caTrustStoreFile = ClientCertAuthenticationTest.class.getResourceAsStream(path)) {
+            store.load(caTrustStoreFile, "password".toCharArray());
+        }
+        return store;
     }
 }
